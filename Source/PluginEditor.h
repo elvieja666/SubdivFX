@@ -2,29 +2,30 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
-#include "PianoRoll.h"
 
-// Zona desde la que se arrastra el resultado (.mid) hacia el DAW
-class DragOutBox : public juce::Component
+// Vista previa del clip. No se edita: se agarra y se arrastra a la pista.
+class ClipView : public juce::Component
 {
 public:
-    explicit DragOutBox (SubdivFXProcessor& p) : proc (p) { setMouseCursor (juce::MouseCursor::DraggingHandCursor); }
+    explicit ClipView (SubdivFXProcessor&);
 
     void paint (juce::Graphics&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override { dragging = false; }
+    void mouseEnter (const juce::MouseEvent&) override { hover = true;  repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override { hover = false; repaint(); }
+    void mouseDrag  (const juce::MouseEvent&) override;
+    void mouseUp    (const juce::MouseEvent&) override { dragging = false; }
 
+    static juce::Colour velocityColour (int velocity);
     static juce::File makeExportFile();
 
 private:
     SubdivFXProcessor& proc;
-    bool dragging = false;
+    bool hover = false, dragging = false;
 };
 
 // ============================================================================
 class SubdivFXEditor : public juce::AudioProcessorEditor,
-                       public juce::FileDragAndDropTarget,
-                       private juce::ChangeListener
+                       private juce::Timer
 {
 public:
     explicit SubdivFXEditor (SubdivFXProcessor&);
@@ -32,13 +33,6 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
-    bool keyPressed (const juce::KeyPress&) override;
-
-    // Arrastrar archivos MIDI hacia el plugin
-    bool isInterestedInFileDrag (const juce::StringArray& files) override;
-    void fileDragEnter (const juce::StringArray&, int, int) override;
-    void fileDragExit (const juce::StringArray&) override;
-    void filesDropped (const juce::StringArray& files, int, int) override;
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
@@ -57,26 +51,24 @@ private:
     {
         juce::String title;
         juce::Colour colour;
+        int row = 0;
         std::vector<std::unique_ptr<Control>> controls;
         juce::Rectangle<int> bounds;
+        int contentWidth() const;
     };
 
     SubdivFXProcessor& proc;
     juce::LookAndFeel_V4 lnf;
 
-    juce::TextButton captureBtn { "Capturar" }, openBtn { "Abrir .mid" },
-                     selectAllBtn { "Seleccionar todo" }, undoBtn { "Deshacer" }, clearBtn { "Limpiar" },
-                     generateBtn { "GENERAR" }, saveBtn { "Guardar .mid" };
-    PianoRoll  pianoRoll;
-    DragOutBox dragOut;
+    ClipView clipView;
+    juce::TextButton previewBtn { "Probar" }, variationBtn { "Variar" }, saveBtn { "Guardar .mid" };
     juce::Label status;
     std::vector<Section> sections;
     std::unique_ptr<juce::FileChooser> chooser;
+    int lastVersion = -1;
 
-    void addSection (const juce::String& title, juce::Colour colour, const juce::StringArray& ids);
-    void changeListenerCallback (juce::ChangeBroadcaster*) override;
-    void refresh();
-    static bool isMidiFile (const juce::String& path);
+    void addSection (const juce::String& title, juce::Colour colour, int row, const juce::StringArray& ids);
+    void timerCallback() override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SubdivFXEditor)
 };

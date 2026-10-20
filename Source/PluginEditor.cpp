@@ -2,51 +2,101 @@
 
 namespace
 {
-    const juce::Colour bg     { 0xff16181d };
-    const juce::Colour panel  { 0xff20232a };
-    const juce::Colour text   { 0xffe8e8ea };
-    const juce::Colour dim    { 0xff8a8f98 };
-    const juce::Colour accent { 0xff4fc3f7 };
-    const juce::Colour hot    { 0xffef5350 };
-    const juce::Colour warm   { 0xffffb74d };
+    const juce::Colour bg      { 0xff16181d };
+    const juce::Colour panel   { 0xff20232a };
+    const juce::Colour text    { 0xffe8e8ea };
+    const juce::Colour dim     { 0xff8a8f98 };
+    const juce::Colour accent  { 0xff4fc3f7 };
+    const juce::Colour warm    { 0xffffb74d };
+    const juce::Colour green   { 0xff81c784 };
+    const juce::Colour pink    { 0xfff06292 };
 
-    constexpr int pad = 12, topH = 46, rollH = 290, sectionHeader = 26, knobH = 96,
-                  knobW = 82, comboW = 128, bottomH = 58;
+    constexpr int pad = 12, topH = 46, clipH = 160, sectionHeader = 26, knobH = 96,
+                  knobW = 82, comboW = 128, bottomH = 58, sectionInset = 12;
 }
 
 // ============================================================================
-//  DragOutBox
+//  ClipView
 // ============================================================================
-juce::File DragOutBox::makeExportFile()
+ClipView::ClipView (SubdivFXProcessor& p) : proc (p)
 {
-    return juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+    setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+}
+
+juce::Colour ClipView::velocityColour (int velocity)
+{
+    // como en Logic: azul = suave, rojo = fuerte
+    const float t = juce::jlimit (0.0f, 1.0f, (float) (velocity - 1) / 126.0f);
+    return juce::Colour::fromHSV (0.62f * (1.0f - t), 0.68f, 0.92f, 1.0f);
+}
+
+juce::File ClipView::makeExportFile()
+{
+    return juce::File::getSpecialLocation (juce::File::tempDirectory)
                .getChildFile ("SubdivFX")
-               .getChildFile ("SubdivFX_" + juce::Time::getCurrentTime().formatted ("%Y%m%d_%H%M%S") + ".mid");
+               .getChildFile ("SubdivFX_" + juce::Time::getCurrentTime().formatted ("%H%M%S") + ".mid");
 }
 
-void DragOutBox::paint (juce::Graphics& g)
+void ClipView::paint (juce::Graphics& g)
 {
-    const bool hasNotes = ! proc.getNotes().empty();
-    auto r = getLocalBounds().toFloat().reduced (1.0f);
+    const auto notes  = proc.buildPattern();
+    const double len  = proc.patternLength();
+    auto bounds       = getLocalBounds().toFloat();
 
-    g.setColour (panel.brighter (0.06f));
-    g.fillRoundedRectangle (r, 6.0f);
-    g.setColour (hasNotes ? accent : dim.withAlpha (0.5f));
+    g.setColour (panel);
+    g.fillRoundedRectangle (bounds, 8.0f);
+
+    auto area = bounds.reduced (14.0f, 16.0f).withTrimmedBottom (14.0f);
+
+    // Rango de pitch
+    int lo = 127, hi = 0;
+    for (const auto& n : notes) { lo = juce::jmin (lo, n.pitch); hi = juce::jmax (hi, n.pitch); }
+    if (notes.empty()) { lo = hi = 60; }
+    const int rows = juce::jmax (7, hi - lo + 3);
+    const int top  = hi + (rows - (hi - lo)) / 2;
+    const float rowH = area.getHeight() / (float) rows;
+
+    auto beatToX  = [&] (double b) { return area.getX() + (float) (b / len) * area.getWidth(); };
+    auto pitchToY = [&] (int p)    { return area.getY() + (float) (top - p) * rowH; };
+
+    // Grilla: compases, negras y semicorcheas según el largo
+    const double step = len <= 1.0 ? 0.0625 : (len <= 4.0 ? 0.25 : 1.0);
+    for (double b = 0.0; b <= len + 1e-9; b += step)
+    {
+        const bool isBar  = std::abs (std::fmod (b, 4.0)) < 1e-6;
+        const bool isBeat = std::abs (b - std::round (b)) < 1e-6;
+        g.setColour (isBar ? juce::Colour (0xff4a4f59) : (isBeat ? juce::Colour (0xff353a43) : juce::Colour (0xff2a2e35)));
+        g.drawVerticalLine ((int) beatToX (b), area.getY(), area.getBottom());
+    }
+
+    // Notas
+    for (const auto& n : notes)
+    {
+        const float x0 = beatToX (n.start), x1 = beatToX (n.end());
+        juce::Rectangle<float> r (x0, pitchToY (n.pitch) + 1.0f, juce::jmax (2.0f, x1 - x0 - 1.0f), juce::jmax (3.0f, rowH - 2.0f));
+        g.setColour (velocityColour (n.velocity));
+        g.fillRoundedRectangle (r, 2.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.drawRoundedRectangle (r, 2.0f, 1.0f);
+    }
+
+    // Indicación de arrastre
+    g.setColour (hover ? text : dim);
+    g.setFont (juce::FontOptions (12.5f));
+    g.drawText ("Arrastra este clip a tu pista", bounds.reduced (14.0f, 6.0f).removeFromBottom (16.0f),
+                juce::Justification::centredRight);
+
+    g.setColour (hover ? accent : accent.withAlpha (0.35f));
     const float dash[] = { 5.0f, 4.0f };
     juce::Path outline, dashed;
-    outline.addRoundedRectangle (r, 6.0f);
-    juce::PathStrokeType (1.2f).createDashedStroke (dashed, outline, dash, 2);
+    outline.addRoundedRectangle (bounds.reduced (1.0f), 8.0f);
+    juce::PathStrokeType (hover ? 1.6f : 1.1f).createDashedStroke (dashed, outline, dash, 2);
     g.fillPath (dashed);
-
-    g.setColour (hasNotes ? text : dim);
-    g.setFont (juce::FontOptions (14.0f));
-    g.drawText (hasNotes ? "Arrastra esto a tu pista" : "Sin notas para arrastrar",
-                getLocalBounds(), juce::Justification::centred);
 }
 
-void DragOutBox::mouseDrag (const juce::MouseEvent& e)
+void ClipView::mouseDrag (const juce::MouseEvent& e)
 {
-    if (dragging || e.getDistanceFromDragStart() < 6 || proc.getNotes().empty())
+    if (dragging || e.getDistanceFromDragStart() < 5)
         return;
 
     const auto file = makeExportFile();
@@ -55,73 +105,58 @@ void DragOutBox::mouseDrag (const juce::MouseEvent& e)
 
     dragging = true;
     juce::DragAndDropContainer::performExternalDragDropOfFiles (juce::StringArray (file.getFullPathName()), false, this,
-                                                                [safe = juce::Component::SafePointer<DragOutBox> (this)]
-                                                                {
-                                                                    if (safe != nullptr) safe->dragging = false;
-                                                                });
+        [safe = juce::Component::SafePointer<ClipView> (this)]
+        {
+            if (safe != nullptr) safe->dragging = false;
+        });
 }
 
 // ============================================================================
 //  Editor
 // ============================================================================
-SubdivFXEditor::SubdivFXEditor (SubdivFXProcessor& p)
-    : AudioProcessorEditor (&p), proc (p), pianoRoll (p), dragOut (p)
+int SubdivFXEditor::Section::contentWidth() const
 {
-    lnf.setColour (juce::Slider::textBoxTextColourId,      text);
-    lnf.setColour (juce::Slider::textBoxOutlineColourId,   juce::Colours::transparentBlack);
-    lnf.setColour (juce::ComboBox::backgroundColourId,     panel.brighter (0.1f));
-    lnf.setColour (juce::ComboBox::textColourId,           text);
-    lnf.setColour (juce::ComboBox::outlineColourId,        juce::Colours::transparentBlack);
-    lnf.setColour (juce::PopupMenu::backgroundColourId,    panel);
-    lnf.setColour (juce::Label::textColourId,              dim);
-    lnf.setColour (juce::TextButton::buttonColourId,       panel.brighter (0.12f));
-    lnf.setColour (juce::TextButton::textColourOffId,      text);
-    lnf.setColour (juce::TextButton::textColourOnId,       juce::Colours::white);
+    int w = 0;
+    for (auto& c : controls) w += c->combo ? comboW : knobW;
+    return w + sectionInset * 2;
+}
+
+SubdivFXEditor::SubdivFXEditor (SubdivFXProcessor& p)
+    : AudioProcessorEditor (&p), proc (p), clipView (p)
+{
+    lnf.setColour (juce::Slider::textBoxTextColourId,    text);
+    lnf.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    lnf.setColour (juce::ComboBox::backgroundColourId,   panel.brighter (0.1f));
+    lnf.setColour (juce::ComboBox::textColourId,         text);
+    lnf.setColour (juce::ComboBox::outlineColourId,      juce::Colours::transparentBlack);
+    lnf.setColour (juce::PopupMenu::backgroundColourId,  panel);
+    lnf.setColour (juce::Label::textColourId,            dim);
+    lnf.setColour (juce::TextButton::buttonColourId,     panel.brighter (0.12f));
+    lnf.setColour (juce::TextButton::textColourOffId,    text);
+    lnf.setColour (juce::TextButton::textColourOnId,     juce::Colours::white);
     setLookAndFeel (&lnf);
 
-    // --- Barra superior ---
-    for (auto* b : { &captureBtn, &openBtn, &selectAllBtn, &undoBtn, &clearBtn })
-        addAndMakeVisible (*b);
+    addAndMakeVisible (clipView);
 
-    captureBtn.setColour (juce::TextButton::buttonOnColourId, hot);
-    captureBtn.onClick = [this]
+    addSection ("CLIP",        green,  0, { "rootNote", "length", "velocity" });
+    addSection ("PITCH",       pink,   0, { "pitchDir", "pitchStep" });
+    addSection ("SUBDIVISION", accent, 1, { "mode", "rate", "parts", "rhythm", "rhythmAmt", "gate" });
+    addSection ("VELOCITY",    warm,   2, { "velMode", "velDepth", "velSteps", "humanize" });
+
+    previewBtn.setColour (juce::TextButton::buttonColourId, accent.darker (0.3f));
+    previewBtn.setColour (juce::TextButton::buttonOnColourId, accent.darker (0.1f));
+    previewBtn.onClick = [this]
     {
-        if (proc.isCapturing()) proc.stopCapture();
-        else                    proc.startCapture();
+        if (proc.isPreviewing()) proc.stopPreview();
+        else                     proc.startPreview();
     };
-
-    openBtn.onClick = [this]
-    {
-        chooser = std::make_unique<juce::FileChooser> ("Abrir archivo MIDI", juce::File(), "*.mid;*.midi");
-        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                              [this] (const juce::FileChooser& fc)
-                              {
-                                  const auto f = fc.getResult();
-                                  if (f.existsAsFile()) proc.loadMidiFile (f);
-                              });
-    };
-
-    selectAllBtn.onClick = [this] { proc.selectAll (proc.numSelected() < (int) proc.getNotes().size()); };
-    undoBtn.onClick      = [this] { proc.undo(); };
-    clearBtn.onClick     = [this] { proc.clearNotes(); };
-
-    // --- Piano roll ---
-    addAndMakeVisible (pianoRoll);
-
-    // --- Controles ---
-    addSection ("SUBDIVISION", accent, { "mode", "rate", "parts", "rhythm", "rhythmAmt", "gate", "pitchStep" });
-    addSection ("VELOCITY",    warm,   { "velMode", "velDepth", "velSteps", "velScale", "humanize" });
-
-    // --- Barra inferior ---
-    generateBtn.setColour (juce::TextButton::buttonColourId, accent.darker (0.25f));
-    generateBtn.onClick = [this] { proc.generate(); };
-    addAndMakeVisible (generateBtn);
-    addAndMakeVisible (dragOut);
+    variationBtn.setTooltip ("Nueva variacion para Aleatorio y Humanizar");
+    variationBtn.onClick = [this] { proc.newVariation(); };
 
     saveBtn.onClick = [this]
     {
-        if (proc.getNotes().empty()) return;
-        chooser = std::make_unique<juce::FileChooser> ("Guardar MIDI", DragOutBox::makeExportFile(), "*.mid");
+        chooser = std::make_unique<juce::FileChooser> ("Guardar MIDI",
+                     juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("SubdivFX.mid"), "*.mid");
         chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                                   | juce::FileBrowserComponent::warnAboutOverwriting,
                               [this] (const juce::FileChooser& fc)
@@ -130,39 +165,42 @@ SubdivFXEditor::SubdivFXEditor (SubdivFXProcessor& p)
                                   if (f != juce::File()) proc.exportMidi (f.withFileExtension (".mid"));
                               });
     };
-    addAndMakeVisible (saveBtn);
+
+    for (auto* b : { &previewBtn, &variationBtn, &saveBtn })
+        addAndMakeVisible (*b);
 
     status.setJustificationType (juce::Justification::centredRight);
     status.setFont (juce::FontOptions (13.0f));
     addAndMakeVisible (status);
 
-    // Tamaño: la sección más ancha manda
-    int maxW = 0;
-    for (auto& s : sections)
+    // Ancho según la fila más ancha
+    int maxRow = 0;
+    for (int row = 0; row < 3; ++row)
     {
-        int w = 0;
-        for (auto& c : s.controls) w += c->combo ? comboW : knobW;
-        maxW = juce::jmax (maxW, w);
+        int w = 0, count = 0;
+        for (auto& s : sections)
+            if (s.row == row) { w += s.contentWidth(); ++count; }
+        maxRow = juce::jmax (maxRow, w + (count - 1) * pad);
     }
 
-    setWantsKeyboardFocus (true);
-    proc.addChangeListener (this);
-    setSize (juce::jmax (760, pad * 2 + maxW + 16),
-             topH + rollH + pad + (int) sections.size() * (sectionHeader + knobH + pad) + bottomH);
-    refresh();
+    setSize (juce::jmax (680, maxRow + pad * 2),
+             topH + clipH + pad + 3 * (sectionHeader + knobH + pad) + bottomH);
+    startTimerHz (20);
+    timerCallback();
 }
 
 SubdivFXEditor::~SubdivFXEditor()
 {
-    proc.removeChangeListener (this);
+    stopTimer();
     setLookAndFeel (nullptr);
 }
 
-void SubdivFXEditor::addSection (const juce::String& title, juce::Colour colour, const juce::StringArray& ids)
+void SubdivFXEditor::addSection (const juce::String& title, juce::Colour colour, int row, const juce::StringArray& ids)
 {
     Section section;
     section.title  = title;
     section.colour = colour;
+    section.row    = row;
 
     for (auto& id : ids)
     {
@@ -203,73 +241,40 @@ void SubdivFXEditor::addSection (const juce::String& title, juce::Colour colour,
     sections.push_back (std::move (section));
 }
 
-// ----------------------------------------------------------------------------
-void SubdivFXEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+void SubdivFXEditor::timerCallback()
 {
-    refresh();
+    const bool playing = proc.isPreviewing();
+    previewBtn.setToggleState (playing, juce::dontSendNotification);
+    previewBtn.setButtonText (playing ? "Detener" : "Probar");
+
+    const int v = proc.getVersion();
+    if (v == lastVersion) return;
+    lastVersion = v;
+
+    const auto notes = proc.buildPattern();
+    int lo = 127, hi = 0;
+    for (const auto& n : notes) { lo = juce::jmin (lo, n.pitch); hi = juce::jmax (hi, n.pitch); }
+
+    juce::String s = juce::String ((int) notes.size()) + " notas";
+    if (! notes.empty() && hi != lo)
+        s << "  |  " << juce::MidiMessage::getMidiNoteName (notes.front().pitch, true, true, 3)
+          << " a " << juce::MidiMessage::getMidiNoteName (notes.back().pitch, true, true, 3);
+    status.setText (s, juce::dontSendNotification);
+
+    clipView.repaint();
 }
 
-void SubdivFXEditor::refresh()
-{
-    const bool cap = proc.isCapturing();
-    captureBtn.setToggleState (cap, juce::dontSendNotification);
-    captureBtn.setButtonText (cap ? "Detener captura" : "Capturar");
-    undoBtn.setEnabled (proc.canUndo());
-
-    const int total = (int) proc.getNotes().size();
-    const int sel   = proc.numSelected();
-    status.setText (total == 0 ? juce::String()
-                               : juce::String (total) + " notas  |  " + juce::String (sel) + " seleccionadas",
-                    juce::dontSendNotification);
-    generateBtn.setButtonText (sel > 0 || total == 0 ? "GENERAR" : "GENERAR (todo)");
-
-    pianoRoll.repaint();
-    dragOut.repaint();
-}
-
-bool SubdivFXEditor::keyPressed (const juce::KeyPress& key)
-{
-    if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0)) { proc.selectAll (true); return true; }
-    if (key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier, 0)) { proc.undo(); return true; }
-    if (key == juce::KeyPress::returnKey)                                    { proc.generate(); return true; }
-    return false;
-}
-
-// ----------------------------------------------------------------------------
-bool SubdivFXEditor::isMidiFile (const juce::String& path)
-{
-    return path.endsWithIgnoreCase (".mid") || path.endsWithIgnoreCase (".midi");
-}
-
-bool SubdivFXEditor::isInterestedInFileDrag (const juce::StringArray& files)
-{
-    for (auto& f : files)
-        if (isMidiFile (f)) return true;
-    return false;
-}
-
-void SubdivFXEditor::fileDragEnter (const juce::StringArray&, int, int) { pianoRoll.setDropHighlight (true); }
-void SubdivFXEditor::fileDragExit  (const juce::StringArray&)           { pianoRoll.setDropHighlight (false); }
-
-void SubdivFXEditor::filesDropped (const juce::StringArray& files, int, int)
-{
-    pianoRoll.setDropHighlight (false);
-    for (auto& f : files)
-        if (isMidiFile (f))
-        {
-            proc.loadMidiFile (juce::File (f));
-            break;
-        }
-}
-
-// ----------------------------------------------------------------------------
 void SubdivFXEditor::paint (juce::Graphics& g)
 {
     g.fillAll (bg);
 
     g.setColour (text);
     g.setFont (juce::FontOptions (21.0f, juce::Font::bold));
-    g.drawText ("SubdivFX", pad, 0, 140, topH, juce::Justification::centredLeft);
+    g.drawText ("SubdivFX", pad, 0, 160, topH, juce::Justification::centredLeft);
+    g.setColour (dim);
+    g.setFont (juce::FontOptions (12.0f));
+    g.drawText ("generador de subdivisiones MIDI", getWidth() - 260 - pad, 0, 260, topH,
+                juce::Justification::centredRight);
 
     for (auto& s : sections)
     {
@@ -286,45 +291,46 @@ void SubdivFXEditor::paint (juce::Graphics& g)
 void SubdivFXEditor::resized()
 {
     auto area = getLocalBounds();
+    area.removeFromTop (topH);
 
-    // Barra superior
-    auto top = area.removeFromTop (topH).reduced (pad, 8);
-    clearBtn.setBounds     (top.removeFromRight (78));  top.removeFromRight (6);
-    undoBtn.setBounds      (top.removeFromRight (84));  top.removeFromRight (6);
-    selectAllBtn.setBounds (top.removeFromRight (130)); top.removeFromRight (6);
-    openBtn.setBounds      (top.removeFromRight (96));  top.removeFromRight (6);
-    captureBtn.setBounds   (top.removeFromRight (130));
-
-    // Piano roll
-    pianoRoll.setBounds (area.removeFromTop (rollH).reduced (pad, 0));
+    clipView.setBounds (area.removeFromTop (clipH).reduced (pad, 0));
     area.removeFromTop (pad);
 
-    // Secciones de controles
-    for (auto& s : sections)
+    for (int row = 0; row < 3; ++row)
     {
-        auto sb = area.removeFromTop (sectionHeader + knobH).reduced (pad, 0);
-        s.bounds = sb;
+        auto rowArea = area.removeFromTop (sectionHeader + knobH).reduced (pad, 0);
         area.removeFromTop (pad);
 
-        int x = sb.getX() + 12;
-        const int y = sb.getY() + sectionHeader - 4;
-        for (auto& c : s.controls)
+        std::vector<Section*> inRow;
+        for (auto& s : sections)
+            if (s.row == row) inRow.push_back (&s);
+
+        for (size_t i = 0; i < inRow.size(); ++i)
         {
-            const int w = c->combo ? comboW : knobW;
-            juce::Rectangle<int> cell (x, y, w, knobH);
-            c->label->setBounds (cell.removeFromTop (18));
-            if (c->combo)
-                c->combo->setBounds (cell.withSizeKeepingCentre (w - 12, 28).translated (0, -10));
-            else
-                c->slider->setBounds (cell.reduced (2, 0));
-            x += w;
+            auto& s = *inRow[i];
+            const bool last = i + 1 == inRow.size();
+            s.bounds = last ? rowArea : rowArea.removeFromLeft (s.contentWidth());
+            if (! last) rowArea.removeFromLeft (pad);
+
+            int x = s.bounds.getX() + sectionInset;
+            const int y = s.bounds.getY() + sectionHeader - 4;
+            for (auto& c : s.controls)
+            {
+                const int w = c->combo ? comboW : knobW;
+                juce::Rectangle<int> cell (x, y, w, knobH);
+                c->label->setBounds (cell.removeFromTop (18));
+                if (c->combo)
+                    c->combo->setBounds (cell.withSizeKeepingCentre (w - 12, 28).translated (0, -10));
+                else
+                    c->slider->setBounds (cell.reduced (2, 0));
+                x += w;
+            }
         }
     }
 
-    // Barra inferior
     auto bottom = area.removeFromTop (bottomH).reduced (pad, 10);
-    generateBtn.setBounds (bottom.removeFromLeft (150));  bottom.removeFromLeft (10);
-    dragOut.setBounds     (bottom.removeFromLeft (230));  bottom.removeFromLeft (10);
-    saveBtn.setBounds     (bottom.removeFromLeft (110));
-    status.setBounds      (bottom);
+    previewBtn.setBounds   (bottom.removeFromLeft (120)); bottom.removeFromLeft (10);
+    variationBtn.setBounds (bottom.removeFromLeft (90));  bottom.removeFromLeft (10);
+    saveBtn.setBounds      (bottom.removeFromLeft (120));
+    status.setBounds       (bottom);
 }

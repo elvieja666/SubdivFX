@@ -1,6 +1,6 @@
 # SubdivFX
 
-Editor de subdivisiones MIDI. Metés una sección MIDI en el plugin, seleccionás notas y con un botón las partís en golpes. Podés cambiar el ritmo de los golpes (parejo, acelerando o frenando), armar escaleras cromáticas y aplicar curvas de velocity. Después arrastrás el resultado de vuelta a tu pista.
+Generador de clips MIDI de subdivisión. Ajustás la nota, el largo, la subdivisión, la rampa de pitch y la curva de velocity, y **arrastrás el clip** directo a tu pista.
 
 Formatos: **AU** (MIDI FX en Logic) y **VST3**, para macOS (Intel y Apple Silicon).
 
@@ -8,63 +8,49 @@ Formatos: **AU** (MIDI FX en Logic) y **VST3**, para macOS (Intel y Apple Silico
 
 ## Cómo se usa
 
-1. **Cargá el plugin** en el slot **MIDI FX** de la pista de instrumento. El MIDI pasa sin cambios, así la pista suena normal.
-2. **Meté las notas** de alguna de estas formas:
-   - **Arrastrá** una región MIDI o un archivo `.mid` sobre el piano roll del plugin.
-   - Usá **Abrir .mid**.
-   - Usá **Capturar**: apretalo, dale play a la sección en Logic y volvé a apretarlo al terminar. Si la sección loopea, las notas no se duplican.
-3. **Seleccioná** las notas que querés subdividir:
-   - clic sobre una nota;
-   - Shift o Cmd + clic para sumar o quitar notas;
-   - arrastrar en un lugar vacío para seleccionar con un rectángulo;
-   - Cmd+A para seleccionar todas.
-4. Ajustá los controles y apretá **GENERAR** (o Enter). Si no seleccionaste nada, se aplica a todas las notas. Las notas generadas quedan seleccionadas, así podés volver a aplicar. Con **Deshacer** (Cmd+Z) volvés atrás.
-5. **Arrastrá** el recuadro *"Arrastra esto a tu pista"* hasta la pista de Logic: se crea una región nueva con las notas reales. También podés usar **Guardar .mid**.
-   Cada arrastre guarda además una copia en `~/Music/SubdivFX/`.
+1. Cargá SubdivFX en el slot **MIDI FX** de una pista de instrumento.
+2. Ajustá los controles. La franja de arriba muestra el clip en tiempo real.
+3. **Probar** toca el clip con el instrumento de la pista, para escucharlo antes de arrastrarlo. La pista tiene que estar seleccionada.
+4. **Arrastrá la franja** a la pista: se crea una región con las notas reales, que podés mover y editar. También podés usar **Guardar .mid**.
 
-Las notas del plugin se guardan junto con el proyecto.
+El .mid no lleva tempo, así que toma el tempo del proyecto.
 
 ## Controles
 
 | Sección | Control | Qué hace |
 |---|---|---|
-| Subdivisión | **Modo** | *Division*: la nota se parte según una figura (1/16, 1/32…). *Partes iguales*: la nota se parte en N golpes, sea cual sea su largo. |
-| | **Division** | 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T o 1/64 (para el modo *Division*). |
-| | **Partes** | Cantidad de golpes, de 2 a 32 (para el modo *Partes iguales*). |
+| Clip | **Nota** | Nota de inicio (C3 = 60, como en Logic). |
+| | **Largo** | Duración total del clip: de 1/16 a 4 compases. |
+| | **Velocity** | Velocity de partida. |
+| Pitch | **Pitch** | *Fijo*, *Sube* o *Baja*: rampa cromática de un golpe al siguiente. |
+| | **Paso** | Semitonos por golpe (1 a 12). |
+| Subdivisión | **Modo** | *Division*: golpes de una figura fija (1/16, 1/32…). *Partes iguales*: el clip se parte en N golpes. |
+| | **Division** | 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T o 1/64. |
+| | **Partes** | Cantidad de golpes (2 a 32) para *Partes iguales*. |
 | | **Ritmo** | *Parejo*, *Acelerando* (golpes que se acortan) o *Frenando* (golpes cortos que se alargan). |
 | | **Curva ritmo** | Cuánto acelera o frena. |
 | | **Gate** | Largo de cada golpe respecto de su espacio. 100% = legato. |
-| | **Escalera** | Semitonos que sube (+) o baja (−) cada golpe, de −12 a +12. 0 = misma nota. |
-| Velocity | **Curva vel.** | *Fija*, *Rampa sube*, *Rampa baja*, *Acento* (primer golpe fuerte) o *Aleatorio*. |
-| | **Profundidad** | Cuánto se aleja la curva de la velocity original. |
-| | **Largo curva** | *Toda la nota* (la curva abarca todos los golpes) o cada cuántos golpes se repite. |
-| | **Escala vel.** | Multiplicador general (10 a 200%). |
-| | **Humanizar** | Variación aleatoria extra. |
+| Velocity | **Curva vel.** | *Fija*, *Rampa sube*, *Rampa baja*, *Acento* o *Aleatorio*. |
+| | **Profundidad** | Cuánto cambia la velocity a lo largo de la curva. |
+| | **Largo curva** | *Todo el clip* o cada cuántos golpes se repite la curva. |
+| | **Humanizar** | Variación aleatoria. **Variar** genera otra versión al azar. |
 
-Los colores de las notas siguen el criterio de Logic: azul = suave, rojo = fuerte.
+Los colores siguen el criterio de Logic: azul = suave, rojo = fuerte.
 
-**Ejemplos:**
-- *Ratchet*: Modo Partes iguales, 6 partes, Ritmo Parejo.
-- *Escalera descendente que se apaga*: 1/32, Escalera −1, Rampa baja.
-- *Redoble que frena*: 1/32, Ritmo Frenando, Curva ritmo 70%.
+**Recetas:**
+- *Escalera que baja y se apaga*: Largo 1/4 · Partes iguales 5 · Pitch Baja 1 st · Rampa baja.
+- *Escalera que sube*: lo mismo con Pitch Sube.
+- *Ratchet*: Largo 1/2 · Partes iguales 6 · Pitch Fijo.
+- *Redoble que frena*: Largo 1 compás · 1/32 · Ritmo Frenando 60%.
 
 ## Compilar
 
-El repo incluye un workflow de GitHub Actions que compila la versión de macOS en cada push. El resultado aparece como artifact `SubdivFX-macOS`.
+Cada push a `main` compila la versión de macOS con GitHub Actions. El resultado queda como artifact `SubdivFX-macOS`.
 
-Para compilar a mano en macOS (requiere las Command Line Tools y `brew install cmake`):
+A mano en macOS (Command Line Tools + `brew install cmake`):
 
 ```bash
 git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
-```
-
-## Estructura
-
-```
-Source/NoteModel.h        notas, generador de subdivisiones, lectura y escritura de .mid
-Source/PluginProcessor.*  captura, deshacer, parámetros, estado guardado
-Source/PianoRoll.*        mini piano roll con selección
-Source/PluginEditor.*     interfaz, arrastrar y soltar
 ```

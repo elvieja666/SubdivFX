@@ -6,15 +6,13 @@
 #include "NoteModel.h"
 
 // ============================================================================
-//  SubdivFX — editor de subdivisiones MIDI.
-//  · Entrada: arrastrar un .mid / región al plugin, o capturar lo que suena.
-//  · Se seleccionan notas en el mini piano roll y se aplica "Generar".
-//  · Salida: arrastrar el resultado de vuelta al DAW, o guardarlo como .mid.
-//  El MIDI que pasa por el plugin no se modifica (la pista suena normal).
+//  SubdivFX — generador de clips de subdivisión.
+//  Se ajustan los parámetros y el clip resultante se arrastra a la pista.
+//  "Probar" lo toca por la salida MIDI (el instrumento de la pista suena).
+//  El MIDI que entra al plugin pasa sin cambios.
 // ============================================================================
 class SubdivFXProcessor : public juce::AudioProcessor,
-                          public juce::ChangeBroadcaster,
-                          private juce::Timer
+                          private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     SubdivFXProcessor();
@@ -49,45 +47,37 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
-    // --- Notas (sólo desde el message thread) ---
-    NoteList& getNotes() { return notes; }
-    void notesChanged();                 // avisar a la UI después de tocar la selección
-    void loadMidiFile (const juce::File&);
-    void generate();
-    void clearNotes();
-    void undo();
-    bool canUndo() const { return ! undoStack.empty(); }
-    void selectAll (bool shouldSelect);
-    int  numSelected() const;
-    bool exportMidi (const juce::File&, bool onlySelected = false);
-    double getBpm() const { return bpm.load(); }
+    // --- Clip (message thread) ---
+    NoteList buildPattern() const;
+    double   patternLength() const;          // largo del clip en beats
+    bool     exportMidi (const juce::File&) const;
+    void     newVariation();                 // nueva semilla para Aleatorio / Humanizar
+    int      getVersion() const { return version.load(); }
 
-    // --- Captura ---
-    void startCapture();
-    void stopCapture();
-    bool isCapturing() const { return capturing.load(); }
+    // --- Probar ---
+    void startPreview();
+    void stopPreview();
+    bool isPreviewing() const { return previewActive.load(); }
 
 private:
-    struct CapEvent { double beat; int channel, pitch, velocity; bool isOn; };
+    struct PrevEv { double beat; int pitch; int velocity; bool isOn; };
 
-    static constexpr int fifoSize = 2048;
-    juce::AbstractFifo fifo { fifoSize };
-    std::array<CapEvent, fifoSize> fifoData;
+    juce::SpinLock previewLock;
+    std::vector<PrevEv> pending, playing;    // pending: lo pide la UI; playing: audio thread
+    bool hasPending = false, stopRequested = false;
+    size_t playIdx = 0;
+    double playBeat = 0.0;
+    std::array<bool, 128> active {};
+    std::atomic<bool> previewActive { false };
 
-    std::atomic<bool>   capturing { false };
     std::atomic<double> bpm { 120.0 };
     double sampleRateHz = 44100.0;
 
-    std::array<double, 16 * 128> openStart;   // inicio de notas abiertas (-1 = cerrada)
-    std::array<int,    16 * 128> openVel;
+    std::atomic<juce::int64> seed { 20261020 };
+    std::atomic<int> version { 0 };
 
-    NoteList notes;
-    std::vector<NoteList> undoStack;
-    juce::Random random;
-
-    void pushUndo();
-    GenSettings currentSettings() const;
-    void timerCallback() override;           // pasa lo capturado al modelo
+    void parameterChanged (const juce::String&, float) override { ++version; }
+    void releaseActive (juce::MidiBuffer&);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SubdivFXProcessor)
 };
