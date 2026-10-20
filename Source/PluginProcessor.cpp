@@ -155,7 +155,7 @@ void SubdivFXProcessor::timerCallback()
     if (changed)
     {
         std::sort (notes.begin(), notes.end(), [] (const Note& a, const Note& b)
-                   { return a.start != b.start ? a.start < b.start : a.pitch < b.pitch; });
+                   { return a.start < b.start || (! (b.start < a.start) && a.pitch < b.pitch); });
         notesChanged();
     }
 }

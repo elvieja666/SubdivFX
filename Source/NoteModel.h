@@ -49,7 +49,7 @@ namespace NoteGen
     // Frenando: golpes cortos al principio que se van alargando. Acelerando: al revés.
     inline double warp (double x, int rhythm, float amount)
     {
-        const double a = 1.0 + 2.0 * juce::jlimit (0.0f, 1.0f, amount);
+        const double a = 1.0 + 1.2 * juce::jlimit (0.0f, 1.0f, amount);
         switch (rhythm)
         {
             case GenSettings::Decelerate: return std::pow (x, a);
@@ -121,7 +121,7 @@ namespace NoteGen
         }
 
         std::sort (out.begin(), out.end(), [] (const Note& a, const Note& b)
-                   { return a.start != b.start ? a.start < b.start : a.pitch < b.pitch; });
+                   { return a.start < b.start || (! (b.start < a.start) && a.pitch < b.pitch); });
         return out;
     }
 
@@ -173,7 +173,7 @@ namespace NoteGen
         }
 
         std::sort (notes.begin(), notes.end(), [] (const Note& a, const Note& b)
-                   { return a.start != b.start ? a.start < b.start : a.pitch < b.pitch; });
+                   { return a.start < b.start || (! (b.start < a.start) && a.pitch < b.pitch); });
         return notes;
     }
 
