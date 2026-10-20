@@ -1,0 +1,96 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  JUCE_VERSION: 8.0.4
+
+jobs:
+  macos:
+    name: macOS (AU + VST3, universal)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar JUCE
+        run: git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git JUCE
+
+      - name: Configurar
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSUBDIV_COPY_AFTER_BUILD=OFF
+
+      - name: Compilar
+        run: cmake --build build --config Release --target SubdivFX_AU SubdivFX_VST3 -j 4
+
+      - name: Firmar (ad-hoc) y empaquetar
+        run: |
+          set -e
+          mkdir -p dist
+          AU=$(find build -name "SubdivFX.component" -type d | head -1)
+          VST=$(find build -name "SubdivFX.vst3" -type d | head -1)
+          codesign --force --deep --sign - "$AU"
+          codesign --force --deep --sign - "$VST"
+          cp -R "$AU" "$VST" dist/
+          cp README.md dist/
+          cat > dist/INSTALAR.txt <<'EOF'
+          1. Copiá SubdivFX.component a:  ~/Library/Audio/Plug-Ins/Components/
+             Copiá SubdivFX.vst3 a:       ~/Library/Audio/Plug-Ins/VST3/
+          2. Abrí Terminal y pegá (quita el bloqueo de macOS a archivos descargados):
+             xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/SubdivFX.component ~/Library/Audio/Plug-Ins/VST3/SubdivFX.vst3
+          3. Abrí Logic → MIDI FX → Audio Units → 0600musica → SubdivFX
+             (si no aparece: Logic Pro → Ajustes → Plug-in Manager → Reset & Rescan Selection)
+          EOF
+          cd dist && ditto -c -k --keepParent . ../SubdivFX-macOS.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SubdivFX-macOS
+          path: SubdivFX-macOS.zip
+
+      - name: Publicar release (en tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SubdivFX-macOS.zip
+
+  windows:
+    name: Windows (VST3)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar JUCE
+        run: git clone --depth 1 --branch $env:JUCE_VERSION https://github.com/juce-framework/JUCE.git JUCE
+
+      - name: Configurar
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DSUBDIV_COPY_AFTER_BUILD=OFF
+
+      - name: Compilar
+        run: cmake --build build --config Release --target SubdivFX_VST3
+
+      - name: Empaquetar
+        shell: pwsh
+        run: |
+          $vst = Get-ChildItem -Path build -Recurse -Directory -Filter "SubdivFX.vst3" | Select-Object -First 1
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item -Recurse $vst.FullName dist/
+          Copy-Item README.md dist/
+          Compress-Archive -Path dist/* -DestinationPath SubdivFX-Windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SubdivFX-Windows
+          path: SubdivFX-Windows.zip
+
+      - name: Publicar release (en tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SubdivFX-Windows.zip
