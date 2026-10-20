@@ -41,7 +41,8 @@ juce_add_plugin(SubdivFX
 
 target_sources(SubdivFX PRIVATE
     Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp)
+    Source/PluginEditor.cpp
+    Source/PianoRoll.cpp)
 
 target_compile_definitions(SubdivFX PUBLIC
     JUCE_WEB_BROWSER=0

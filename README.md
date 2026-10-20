@@ -1,68 +1,70 @@
 # SubdivFX
 
-Efecto MIDI que **subdivide notas** (las repite sincronizadas al tempo mientras se mantienen) y les aplica **curvas de velocity**. Sólo procesa las notas que pasan el filtro **Destino**; todo lo demás (otras notas, CC, pitch bend) pasa sin cambios.
+Editor de subdivisiones MIDI. Metés una sección MIDI en el plugin, seleccionás notas y con un botón las partís en golpes. Podés cambiar el ritmo de los golpes (parejo, acelerando o frenando), armar escaleras cromáticas y aplicar curvas de velocity. Después arrastrás el resultado de vuelta a tu pista.
 
 Formatos: **AU** (MIDI FX en Logic) y **VST3**, para macOS (Intel y Apple Silicon).
 
 ---
 
-## Compilar en macOS
+## Cómo se usa
 
-Requisitos: Xcode (o las Command Line Tools) y CMake (`brew install cmake`).
+1. **Cargá el plugin** en el slot **MIDI FX** de la pista de instrumento. El MIDI pasa sin cambios, así la pista suena normal.
+2. **Meté las notas** de alguna de estas formas:
+   - **Arrastrá** una región MIDI o un archivo `.mid` sobre el piano roll del plugin.
+   - Usá **Abrir .mid**.
+   - Usá **Capturar**: apretalo, dale play a la sección en Logic y volvé a apretarlo al terminar. Si la sección loopea, las notas no se duplican.
+3. **Seleccioná** las notas que querés subdividir:
+   - clic sobre una nota;
+   - Shift o Cmd + clic para sumar o quitar notas;
+   - arrastrar en un lugar vacío para seleccionar con un rectángulo;
+   - Cmd+A para seleccionar todas.
+4. Ajustá los controles y apretá **GENERAR** (o Enter). Si no seleccionaste nada, se aplica a todas las notas. Las notas generadas quedan seleccionadas, así podés volver a aplicar. Con **Deshacer** (Cmd+Z) volvés atrás.
+5. **Arrastrá** el recuadro *"Arrastra esto a tu pista"* hasta la pista de Logic: se crea una región nueva con las notas reales. También podés usar **Guardar .mid**.
+   Cada arrastre guarda además una copia en `~/Music/SubdivFX/`.
+
+Las notas del plugin se guardan junto con el proyecto.
+
+## Controles
+
+| Sección | Control | Qué hace |
+|---|---|---|
+| Subdivisión | **Modo** | *Division*: la nota se parte según una figura (1/16, 1/32…). *Partes iguales*: la nota se parte en N golpes, sea cual sea su largo. |
+| | **Division** | 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T o 1/64 (para el modo *Division*). |
+| | **Partes** | Cantidad de golpes, de 2 a 32 (para el modo *Partes iguales*). |
+| | **Ritmo** | *Parejo*, *Acelerando* (golpes que se acortan) o *Frenando* (golpes cortos que se alargan). |
+| | **Curva ritmo** | Cuánto acelera o frena. |
+| | **Gate** | Largo de cada golpe respecto de su espacio. 100% = legato. |
+| | **Escalera** | Semitonos que sube (+) o baja (−) cada golpe, de −12 a +12. 0 = misma nota. |
+| Velocity | **Curva vel.** | *Fija*, *Rampa sube*, *Rampa baja*, *Acento* (primer golpe fuerte) o *Aleatorio*. |
+| | **Profundidad** | Cuánto se aleja la curva de la velocity original. |
+| | **Largo curva** | *Toda la nota* (la curva abarca todos los golpes) o cada cuántos golpes se repite. |
+| | **Escala vel.** | Multiplicador general (10 a 200%). |
+| | **Humanizar** | Variación aleatoria extra. |
+
+Los colores de las notas siguen el criterio de Logic: azul = suave, rojo = fuerte.
+
+**Ejemplos:**
+- *Ratchet*: Modo Partes iguales, 6 partes, Ritmo Parejo.
+- *Escalera descendente que se apaga*: 1/32, Escalera −1, Rampa baja.
+- *Redoble que frena*: 1/32, Ritmo Frenando, Curva ritmo 70%.
+
+## Compilar
+
+El repo incluye un workflow de GitHub Actions que compila la versión de macOS en cada push. El resultado aparece como artifact `SubdivFX-macOS`.
+
+Para compilar a mano en macOS (requiere las Command Line Tools y `brew install cmake`):
 
 ```bash
-cd SubdivFX
 git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
-cmake -B build -G Xcode
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
-
-Al terminar, los plugins se copian solos a:
-- `~/Library/Audio/Plug-Ins/Components/SubdivFX.component` (AU)
-- `~/Library/Audio/Plug-Ins/VST3/SubdivFX.vst3`
-
-
-## Usarlo en Logic
-
-1. Si Logic estaba abierto, cerralo y volvé a abrirlo. Va a validar el plugin nuevo.
-2. En un canal de instrumento, abrí el slot **MIDI FX** y elegí **Audio Units → 0600musica → SubdivFX**.
-3. Para que funcione al tocar en vivo, el canal tiene que estar seleccionado o armado.
-
-### Cómo procesar solo algunas notas ("notas seleccionadas")
-
-Un plugin no puede leer la selección del piano roll, así que el filtro **Destino** cumple esa función. Hay dos formas fáciles de marcar notas en Logic:
-
-- **Por canal MIDI**: seleccioná las notas en el Piano Roll y, en el Inspector, cambiales el **canal** (por ejemplo, a 2). En SubdivFX poné **Canal = 2**. Solo esas notas se subdividen.
-- **Por velocity**: dales a las notas elegidas una velocity alta (por ejemplo, 120 a 127) y poné **Vel min = 120**. Ojo: la curva de velocity parte de esa velocity original, así que podés compensarla con **Escala vel.**
-
-También sirve **Nota min / Nota max** para procesar, por ejemplo, solo los hi-hats de un kit.
-
-## Parámetros
-
-| Sección | Parámetro | Qué hace |
-|---|---|---|
-| Subdivisión | **Division** | Valor de cada repetición: 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T o 1/64 (sigue el tempo del DAW). |
-| | **Gate** | Duración de cada repetición, en % del intervalo. 100% = legato. |
-| | **Repeticiones** | Cantidad máxima de golpes por nota. "Mientras suene" = repite hasta que soltás la nota. |
-| Velocity | **Curva vel.** | Escalar · Rampa sube · Rampa baja · Acento (primer golpe fuerte) · Aleatorio. |
-| | **Profundidad** | Cuánto se aleja la curva de la velocity original. |
-| | **Largo curva** | Cada cuántos golpes se repite el patrón de la curva (2 a 16). |
-| | **Escala vel.** | Multiplicador general (10 a 200%). |
-| | **Humanizar** | Variación aleatoria extra de ± %. |
-| Destino | **Canal** | Todos o un canal de 1 a 16. |
-| | **Nota min / max** | Rango de notas a procesar. |
-| | **Vel min / max** | Rango de velocity de entrada a procesar. |
-
-## Notas por DAW
-
-- **Logic**: AU MIDI FX nativo.
-- **Reaper, Bitwig, Cubase, Studio One**: el VST3 funciona como efecto MIDI insertado antes del instrumento. En algunos DAW hay que rutear la salida MIDI del plugin hacia la pista del instrumento.
-- **Ableton Live**: no carga efectos MIDI VST3 en la cadena MIDI. Hay que ponerlo en una pista MIDI propia y mandar su salida MIDI a la pista del instrumento. La alternativa es una versión Max for Live.
 
 ## Estructura
 
 ```
-CMakeLists.txt            configuración de build (JUCE / CMake)
-Source/PluginProcessor.*  lógica MIDI: subdivisión, curvas, filtro
-Source/PluginEditor.*     interfaz
+Source/NoteModel.h        notas, generador de subdivisiones, lectura y escritura de .mid
+Source/PluginProcessor.*  captura, deshacer, parámetros, estado guardado
+Source/PianoRoll.*        mini piano roll con selección
+Source/PluginEditor.*     interfaz, arrastrar y soltar
 ```

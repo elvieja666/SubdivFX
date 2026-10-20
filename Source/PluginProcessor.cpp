@@ -3,14 +3,10 @@
 
 namespace
 {
-    // Divisiones de compás disponibles y su duración en negras (beats)
     const juce::StringArray rateNames  { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T", "1/64" };
     const double            rateBeats[] { 1.0,   0.5,   1.0/3,  0.25,   1.0/6,   0.125,  1.0/12,  0.0625 };
 
-    const juce::StringArray velModeNames { "Escalar", "Rampa sube", "Rampa baja", "Acento", "Aleatorio" };
-    enum VelMode { Scale = 0, RampUp, RampDown, Accent, RandomMode };
-
-    juce::String noteName (int n) { return juce::MidiMessage::getMidiNoteName (n, true, true, 3); }
+    juce::String pctText (float v, int) { return juce::String (juce::roundToInt (v)) + " %"; }
 }
 
 // ----------------------------------------------------------------------------
@@ -19,37 +15,35 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubdivFXProcessor::createLay
     using namespace juce;
     AudioProcessorValueTreeState::ParameterLayout layout;
 
-    auto pct = AudioParameterFloatAttributes().withLabel ("%")
-                   .withStringFromValueFunction ([] (float v, int) { return String (roundToInt (v)) + " %"; });
-    auto noteAttr = AudioParameterIntAttributes()
-                        .withStringFromValueFunction ([] (int v, int) { return noteName (v); });
+    auto pct = AudioParameterFloatAttributes().withLabel ("%").withStringFromValueFunction (pctText);
 
     // --- Subdivisión ---
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "mode", 1 }, "Modo",
+                    StringArray { "Division", "Partes iguales" }, 0));
     layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "rate", 1 }, "Division", rateNames, 3));
+    layout.add (std::make_unique<AudioParameterInt>    (ParameterID { "parts", 1 }, "Partes", 2, 32, 4));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "rhythm", 1 }, "Ritmo",
+                    StringArray { "Parejo", "Acelerando", "Frenando" }, 0));
+    layout.add (std::make_unique<AudioParameterFloat>  (ParameterID { "rhythmAmt", 1 }, "Curva ritmo",
+                    NormalisableRange<float> (0.f, 100.f, 1.f), 50.f, pct));
     layout.add (std::make_unique<AudioParameterFloat>  (ParameterID { "gate", 1 }, "Gate",
-                                                        NormalisableRange<float> (5.f, 100.f, 1.f), 75.f, pct));
-    layout.add (std::make_unique<AudioParameterInt>    (ParameterID { "repeats", 1 }, "Repeticiones", 0, 32, 0,
+                    NormalisableRange<float> (5.f, 100.f, 1.f), 90.f, pct));
+    layout.add (std::make_unique<AudioParameterInt>    (ParameterID { "pitchStep", 1 }, "Escalera", -12, 12, 0,
                     AudioParameterIntAttributes().withStringFromValueFunction ([] (int v, int)
-                        { return v == 0 ? String ("Mientras suene") : String (v); })));
+                        { return v == 0 ? String ("Sin escalera") : (v > 0 ? "+" : "") + String (v) + " st"; })));
 
     // --- Velocity ---
-    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "velMode", 1 }, "Curva vel.", velModeNames, 2));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "velMode", 1 }, "Curva vel.",
+                    StringArray { "Fija", "Rampa sube", "Rampa baja", "Acento", "Aleatorio" }, 0));
     layout.add (std::make_unique<AudioParameterFloat>  (ParameterID { "velDepth", 1 }, "Profundidad",
-                                                        NormalisableRange<float> (0.f, 100.f, 1.f), 50.f, pct));
-    layout.add (std::make_unique<AudioParameterInt>    (ParameterID { "velSteps", 1 }, "Largo curva", 2, 16, 4));
-    layout.add (std::make_unique<AudioParameterFloat>  (ParameterID { "velScale", 1 }, "Escala vel.",
-                                                        NormalisableRange<float> (10.f, 200.f, 1.f), 100.f, pct));
-    layout.add (std::make_unique<AudioParameterFloat>  (ParameterID { "humanize", 1 }, "Humanizar",
-                                                        NormalisableRange<float> (0.f, 50.f, 1.f), 0.f, pct));
-
-    // --- Destino (qué notas se procesan) ---
-    layout.add (std::make_unique<AudioParameterInt> (ParameterID { "channel", 1 }, "Canal", 0, 16, 0,
+                    NormalisableRange<float> (0.f, 100.f, 1.f), 50.f, pct));
+    layout.add (std::make_unique<AudioParameterInt>    (ParameterID { "velSteps", 1 }, "Largo curva", 0, 16, 0,
                     AudioParameterIntAttributes().withStringFromValueFunction ([] (int v, int)
-                        { return v == 0 ? String ("Todos") : String (v); })));
-    layout.add (std::make_unique<AudioParameterInt> (ParameterID { "noteLow", 1 },  "Nota min", 0, 127, 0,   noteAttr));
-    layout.add (std::make_unique<AudioParameterInt> (ParameterID { "noteHigh", 1 }, "Nota max", 0, 127, 127, noteAttr));
-    layout.add (std::make_unique<AudioParameterInt> (ParameterID { "velLow", 1 },   "Vel min",  1, 127, 1));
-    layout.add (std::make_unique<AudioParameterInt> (ParameterID { "velHigh", 1 },  "Vel max",  1, 127, 127));
+                        { return v == 0 ? String ("Toda la nota") : String (v) + " golpes"; })));
+    layout.add (std::make_unique<AudioParameterFloat>  (ParameterID { "velScale", 1 }, "Escala vel.",
+                    NormalisableRange<float> (10.f, 200.f, 1.f), 100.f, pct));
+    layout.add (std::make_unique<AudioParameterFloat>  (ParameterID { "humanize", 1 }, "Humanizar",
+                    NormalisableRange<float> (0.f, 50.f, 1.f), 0.f, pct));
 
     return layout;
 }
@@ -59,239 +53,281 @@ SubdivFXProcessor::SubdivFXProcessor()
     : AudioProcessor (BusesProperties()),   // efecto MIDI: sin buses de audio
       apvts (*this, nullptr, "SubdivFX", createLayout())
 {
-    pRate     = apvts.getRawParameterValue ("rate");
-    pGate     = apvts.getRawParameterValue ("gate");
-    pRepeats  = apvts.getRawParameterValue ("repeats");
-    pVelMode  = apvts.getRawParameterValue ("velMode");
-    pVelDepth = apvts.getRawParameterValue ("velDepth");
-    pVelSteps = apvts.getRawParameterValue ("velSteps");
-    pVelScale = apvts.getRawParameterValue ("velScale");
-    pHumanize = apvts.getRawParameterValue ("humanize");
-    pChannel  = apvts.getRawParameterValue ("channel");
-    pNoteLow  = apvts.getRawParameterValue ("noteLow");
-    pNoteHigh = apvts.getRawParameterValue ("noteHigh");
-    pVelLow   = apvts.getRawParameterValue ("velLow");
-    pVelHigh  = apvts.getRawParameterValue ("velHigh");
+    openStart.fill (-1.0);
+    openVel.fill (0);
+    startTimerHz (30);
+}
+
+SubdivFXProcessor::~SubdivFXProcessor()
+{
+    stopTimer();
 }
 
 void SubdivFXProcessor::prepareToPlay (double sampleRate, int)
 {
-    currentSampleRate = sampleRate;
-    for (auto& v : voices) v = Voice{};
-    wasPlaying = false;
+    sampleRateHz = sampleRate;
 }
 
 // ----------------------------------------------------------------------------
-bool SubdivFXProcessor::matchesTarget (const juce::MidiMessage& m) const
-{
-    const int ch = (int) pChannel->load();
-    if (ch != 0 && m.getChannel() != ch) return false;
-
-    const int lo = (int) pNoteLow->load(), hi = (int) pNoteHigh->load();
-    const int n  = m.getNoteNumber();
-    if (n < juce::jmin (lo, hi) || n > juce::jmax (lo, hi)) return false;
-
-    const int vlo = (int) pVelLow->load(), vhi = (int) pVelHigh->load();
-    const int vel = m.getVelocity();
-    return vel >= juce::jmin (vlo, vhi) && vel <= juce::jmax (vlo, vhi);
-}
-
-int SubdivFXProcessor::velocityForStep (int baseVelocity, int step)
-{
-    const int   steps = juce::jmax (2, (int) pVelSteps->load());
-    const float depth = pVelDepth->load() / 100.f;
-    const int   pos   = step % steps;
-    const float t     = (float) pos / (float) (steps - 1);   // 0..1 dentro del ciclo
-
-    float f = 1.f;
-    switch ((int) pVelMode->load())
-    {
-        case RampUp:     f = 1.f - depth * (1.f - t);                 break;
-        case RampDown:   f = 1.f - depth * t;                         break;
-        case Accent:     f = (pos == 0) ? 1.f : 1.f - depth;          break;
-        case RandomMode: f = 1.f - depth * random.nextFloat();        break;
-        case Scale:
-        default:         f = 1.f;                                     break;
-    }
-
-    float vel = (float) baseVelocity * f * (pVelScale->load() / 100.f);
-
-    const float hum = pHumanize->load() / 100.f;
-    if (hum > 0.f)
-        vel *= 1.f + hum * (random.nextFloat() * 2.f - 1.f);
-
-    return juce::jlimit (1, 127, juce::roundToInt (vel));
-}
-
-SubdivFXProcessor::Voice* SubdivFXProcessor::findVoice (int channel, int note)
-{
-    for (auto& v : voices)
-        if (v.active && v.channel == channel && v.note == note)
-            return &v;
-    return nullptr;
-}
-
-SubdivFXProcessor::Voice* SubdivFXProcessor::freeVoice()
-{
-    for (auto& v : voices)
-        if (! v.active)
-            return &v;
-    return nullptr;
-}
-
-void SubdivFXProcessor::killAllVoices (juce::MidiBuffer& out, int samplePos)
-{
-    for (auto& v : voices)
-    {
-        if (v.active && v.isOn)
-            out.addEvent (juce::MidiMessage::noteOff (v.channel, v.note), samplePos);
-        v = Voice{};
-    }
-}
-
-void SubdivFXProcessor::startSubdivision (Voice& v, juce::MidiBuffer& out, int samplePos,
-                                          int gateSamples, int intervalSamples)
-{
-    const auto vel = (juce::uint8) velocityForStep (v.baseVelocity, v.step);
-    out.addEvent (juce::MidiMessage::noteOn (v.channel, v.note, vel), samplePos);
-    v.isOn   = true;
-    v.offIn  = gateSamples;
-    v.nextIn = intervalSamples;
-}
-
+//  Audio thread: el MIDI pasa sin cambios; si estamos capturando, anotamos
+//  cada note on/off con su posición en beats.
 // ----------------------------------------------------------------------------
 void SubdivFXProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     buffer.clear();
-    const int numSamples = buffer.getNumSamples();
 
-    // --- Tempo y transporte ---
-    double bpm = 120.0;
-    bool playing = false;
+    double ppq = 0.0;
+    bool playing = false, hasPpq = false;
+
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
         {
-            if (auto b = pos->getBpm()) bpm = juce::jlimit (20.0, 999.0, *b);
+            if (auto b = pos->getBpm()) bpm.store (juce::jlimit (20.0, 999.0, *b));
+            if (auto p = pos->getPpqPosition()) { ppq = *p; hasPpq = true; }
             playing = pos->getIsPlaying();
         }
 
-    juce::MidiBuffer out;
+    if (! capturing.load() || ! playing || ! hasPpq)
+        return;
 
-    // Al detener el transporte, cortamos todo para no dejar notas colgadas
-    if (wasPlaying && ! playing)
-        killAllVoices (out, 0);
-    wasPlaying = playing;
+    const double samplesPerBeat = sampleRateHz * 60.0 / bpm.load();
 
-    const int    rateIdx  = juce::jlimit (0, rateNames.size() - 1, (int) pRate->load());
-    const double interval = currentSampleRate * 60.0 / bpm * rateBeats[rateIdx];
-    const int intervalSamples = juce::jmax (2, juce::roundToInt (interval));
-    const int gateSamples     = juce::jlimit (1, intervalSamples,
-                                              juce::roundToInt (intervalSamples * pGate->load() / 100.f));
-    const int maxRepeats      = (int) pRepeats->load();
-
-    auto handleEvent = [&] (const juce::MidiMessage& m, int s)
+    for (const auto meta : midi)
     {
-        if (m.isNoteOn())
-        {
-            if (! matchesTarget (m)) { out.addEvent (m, s); return; }
+        const auto m = meta.getMessage();
+        if (! (m.isNoteOn() || m.isNoteOff()))
+            continue;
 
-            Voice* v = findVoice (m.getChannel(), m.getNoteNumber());
-            if (v != nullptr && v->isOn)
-                out.addEvent (juce::MidiMessage::noteOff (v->channel, v->note), s);
-            if (v == nullptr) v = freeVoice();
-            if (v == nullptr) { out.addEvent (m, s); return; }   // sin voces libres: pasa tal cual
+        CapEvent e { ppq + meta.samplePosition / samplesPerBeat,
+                     m.getChannel(), m.getNoteNumber(), (int) m.getVelocity(), m.isNoteOn() };
 
-            *v = Voice{};
-            v->active       = true;
-            v->channel      = m.getChannel();
-            v->note         = m.getNoteNumber();
-            v->baseVelocity = m.getVelocity();
-            startSubdivision (*v, out, s, gateSamples, intervalSamples);
-        }
-        else if (m.isNoteOff())
-        {
-            if (Voice* v = findVoice (m.getChannel(), m.getNoteNumber()))
-            {
-                if (v->isOn) out.addEvent (m, s);
-                *v = Voice{};
-            }
-            else
-            {
-                out.addEvent (m, s);
-            }
-        }
-        else if (m.isAllNotesOff() || m.isAllSoundOff())
-        {
-            killAllVoices (out, s);
-            out.addEvent (m, s);
-        }
-        else
-        {
-            out.addEvent (m, s);   // CC, pitch bend, etc. pasan sin cambios
-        }
-    };
-
-    auto it = midi.begin();
-    for (int s = 0; s < numSamples; ++s)
-    {
-        // 1) Eventos entrantes en esta muestra
-        while (it != midi.end() && (*it).samplePosition <= s)
-        {
-            handleEvent ((*it).getMessage(), s);
-            ++it;
-        }
-
-        // 2) Avanzar las voces activas
-        for (auto& v : voices)
-        {
-            if (! v.active) continue;
-
-            if (v.isOn && v.offIn == 0)
-            {
-                out.addEvent (juce::MidiMessage::noteOff (v.channel, v.note), s);
-                v.isOn  = false;
-                v.offIn = -1;
-            }
-
-            if (v.nextIn == 0)
-            {
-                if (v.isOn)
-                {
-                    out.addEvent (juce::MidiMessage::noteOff (v.channel, v.note), s);
-                    v.isOn = false;
-                }
-
-                ++v.step;
-                if (maxRepeats > 0 && v.step >= maxRepeats)
-                    v.nextIn = -1;   // llegó al máximo: queda en silencio hasta soltar la nota
-                else
-                    startSubdivision (v, out, s, gateSamples, intervalSamples);
-            }
-
-            if (v.offIn  > 0) --v.offIn;
-            if (v.nextIn > 0) --v.nextIn;
-        }
+        auto scope = fifo.write (1);
+        if (scope.blockSize1 > 0)      fifoData[(size_t) scope.startIndex1] = e;
+        else if (scope.blockSize2 > 0) fifoData[(size_t) scope.startIndex2] = e;
     }
-
-    // Eventos rezagados (posición fuera del bloque)
-    for (; it != midi.end(); ++it)
-        handleEvent ((*it).getMessage(), juce::jmax (0, numSamples - 1));
-
-    midi.swapWith (out);
 }
 
 // ----------------------------------------------------------------------------
+//  Message thread
+// ----------------------------------------------------------------------------
+void SubdivFXProcessor::timerCallback()
+{
+    const int ready = fifo.getNumReady();
+    if (ready == 0) return;
+
+    bool changed = false;
+    auto scope = fifo.read (ready);
+
+    scope.forEach ([&] (int idx)
+    {
+        const auto& e = fifoData[(size_t) idx];
+        if (! capturing.load()) return;
+
+        const int key = juce::jlimit (0, 15, e.channel - 1) * 128 + juce::jlimit (0, 127, e.pitch);
+
+        if (e.isOn)
+        {
+            openStart[(size_t) key] = e.beat;
+            openVel[(size_t) key]   = e.velocity;
+            return;
+        }
+
+        const double st = openStart[(size_t) key];
+        openStart[(size_t) key] = -1.0;
+        if (st < 0.0 || e.beat <= st)        // nota sin inicio, o el loop volvió atrás
+            return;
+
+        // Al loopear la sección la misma nota vuelve a pasar: no la duplicamos
+        for (const auto& n : notes)
+            if (n.pitch == e.pitch && std::abs (n.start - st) < 1.0 / 64.0)
+                return;
+
+        Note n;
+        n.start    = st;
+        n.length   = e.beat - st;
+        n.pitch    = e.pitch;
+        n.velocity = juce::jmax (1, openVel[(size_t) key]);
+        n.channel  = e.channel;
+        notes.push_back (n);
+        changed = true;
+    });
+
+    if (changed)
+    {
+        std::sort (notes.begin(), notes.end(), [] (const Note& a, const Note& b)
+                   { return a.start != b.start ? a.start < b.start : a.pitch < b.pitch; });
+        notesChanged();
+    }
+}
+
+void SubdivFXProcessor::notesChanged()
+{
+    sendChangeMessage();
+}
+
+void SubdivFXProcessor::pushUndo()
+{
+    undoStack.push_back (notes);
+    if (undoStack.size() > 30)
+        undoStack.erase (undoStack.begin());
+}
+
+void SubdivFXProcessor::undo()
+{
+    if (undoStack.empty()) return;
+    notes = std::move (undoStack.back());
+    undoStack.pop_back();
+    notesChanged();
+}
+
+void SubdivFXProcessor::clearNotes()
+{
+    if (notes.empty()) return;
+    pushUndo();
+    notes.clear();
+    notesChanged();
+}
+
+void SubdivFXProcessor::selectAll (bool shouldSelect)
+{
+    for (auto& n : notes) n.selected = shouldSelect;
+    notesChanged();
+}
+
+int SubdivFXProcessor::numSelected() const
+{
+    return (int) std::count_if (notes.begin(), notes.end(), [] (const Note& n) { return n.selected; });
+}
+
+void SubdivFXProcessor::loadMidiFile (const juce::File& file)
+{
+    auto loaded = NoteGen::readMidiFile (file, bpm.load());
+    if (loaded.empty()) return;
+
+    stopCapture();
+    pushUndo();
+    notes = std::move (loaded);
+    notesChanged();
+}
+
+GenSettings SubdivFXProcessor::currentSettings() const
+{
+    auto get = [this] (const char* id) { return apvts.getRawParameterValue (id)->load(); };
+
+    GenSettings g;
+    g.mode      = (int) get ("mode");
+    g.division  = rateBeats[juce::jlimit (0, rateNames.size() - 1, (int) get ("rate"))];
+    g.parts     = (int) get ("parts");
+    g.rhythm    = (int) get ("rhythm");
+    g.rhythmAmt = get ("rhythmAmt") / 100.0f;
+    g.gate      = get ("gate") / 100.0f;
+    g.pitchStep = (int) get ("pitchStep");
+    g.curve     = (int) get ("velMode");
+    g.depth     = get ("velDepth") / 100.0f;
+    g.curveLen  = (int) get ("velSteps");
+    g.velScale  = get ("velScale") / 100.0f;
+    g.humanize  = get ("humanize") / 100.0f;
+    return g;
+}
+
+void SubdivFXProcessor::generate()
+{
+    if (notes.empty()) return;
+
+    NoteList source = notes;
+    if (numSelected() == 0)                       // nada seleccionado: se aplica a todo
+        for (auto& n : source) n.selected = true;
+
+    pushUndo();
+    notes = NoteGen::generate (source, currentSettings(), random);
+    notesChanged();
+}
+
+bool SubdivFXProcessor::exportMidi (const juce::File& file, bool onlySelected)
+{
+    NoteList out;
+    for (const auto& n : notes)
+        if (! onlySelected || n.selected)
+            out.push_back (n);
+
+    return NoteGen::writeMidiFile (out, file, bpm.load());
+}
+
+void SubdivFXProcessor::startCapture()
+{
+    // descartar lo que haya quedado en la fifo
+    auto scope = fifo.read (fifo.getNumReady());
+    juce::ignoreUnused (scope);
+
+    pushUndo();
+    notes.clear();
+    openStart.fill (-1.0);
+    capturing.store (true);
+    notesChanged();
+}
+
+void SubdivFXProcessor::stopCapture()
+{
+    if (! capturing.load()) return;
+    timerCallback();                // procesar lo último que llegó
+    capturing.store (false);
+    openStart.fill (-1.0);
+    notesChanged();
+}
+
+// ----------------------------------------------------------------------------
+//  Estado: parámetros + notas (se guardan con el proyecto)
+// ----------------------------------------------------------------------------
 void SubdivFXProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+
+    juce::ValueTree nt ("NOTES");
+    for (const auto& n : notes)
+    {
+        juce::ValueTree c ("N");
+        c.setProperty ("s", n.start, nullptr);
+        c.setProperty ("l", n.length, nullptr);
+        c.setProperty ("p", n.pitch, nullptr);
+        c.setProperty ("v", n.velocity, nullptr);
+        c.setProperty ("c", n.channel, nullptr);
+        nt.appendChild (c, nullptr);
+    }
+    state.appendChild (nt, nullptr);
+
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
 void SubdivFXProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    if (auto xml = getXmlFromBinary (data, sizeInBytes))
-        if (xml->hasTagName (apvts.state.getType()))
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    auto xml = getXmlFromBinary (data, sizeInBytes);
+    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
+        return;
+
+    auto tree = juce::ValueTree::fromXml (*xml);
+
+    auto nt = tree.getChildWithName ("NOTES");
+    if (nt.isValid())
+    {
+        NoteList loaded;
+        for (int i = 0; i < nt.getNumChildren(); ++i)
+        {
+            auto c = nt.getChild (i);
+            Note n;
+            n.start    = (double) c.getProperty ("s", 0.0);
+            n.length   = (double) c.getProperty ("l", 0.25);
+            n.pitch    = (int)    c.getProperty ("p", 60);
+            n.velocity = (int)    c.getProperty ("v", 100);
+            n.channel  = (int)    c.getProperty ("c", 1);
+            loaded.push_back (n);
+        }
+        notes = std::move (loaded);
+        tree.removeChild (nt, nullptr);
+    }
+
+    apvts.replaceState (tree);
+    sendChangeMessage();
 }
 
 juce::AudioProcessorEditor* SubdivFXProcessor::createEditor()

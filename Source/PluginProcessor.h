@@ -2,23 +2,28 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <array>
+#include <atomic>
+#include "NoteModel.h"
 
 // ============================================================================
-//  SubdivFX — efecto MIDI que subdivide notas (repeticiones sincronizadas al
-//  tempo) y les aplica curvas de velocity. Sólo procesa las notas que pasan el
-//  filtro "Destino" (canal, rango de notas, rango de velocity); el resto pasa
-//  sin cambios.
+//  SubdivFX — editor de subdivisiones MIDI.
+//  · Entrada: arrastrar un .mid / región al plugin, o capturar lo que suena.
+//  · Se seleccionan notas en el mini piano roll y se aplica "Generar".
+//  · Salida: arrastrar el resultado de vuelta al DAW, o guardarlo como .mid.
+//  El MIDI que pasa por el plugin no se modifica (la pista suena normal).
 // ============================================================================
-class SubdivFXProcessor : public juce::AudioProcessor
+class SubdivFXProcessor : public juce::AudioProcessor,
+                          public juce::ChangeBroadcaster,
+                          private juce::Timer
 {
 public:
     SubdivFXProcessor();
-    ~SubdivFXProcessor() override = default;
+    ~SubdivFXProcessor() override;
 
+    // --- AudioProcessor ---
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout&) const override { return true; }
-
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     using AudioProcessor::processBlock;
 
@@ -40,50 +45,49 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // --- Parámetros ---
     juce::AudioProcessorValueTreeState apvts;
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
+    // --- Notas (sólo desde el message thread) ---
+    NoteList& getNotes() { return notes; }
+    void notesChanged();                 // avisar a la UI después de tocar la selección
+    void loadMidiFile (const juce::File&);
+    void generate();
+    void clearNotes();
+    void undo();
+    bool canUndo() const { return ! undoStack.empty(); }
+    void selectAll (bool shouldSelect);
+    int  numSelected() const;
+    bool exportMidi (const juce::File&, bool onlySelected = false);
+    double getBpm() const { return bpm.load(); }
+
+    // --- Captura ---
+    void startCapture();
+    void stopCapture();
+    bool isCapturing() const { return capturing.load(); }
+
 private:
-    struct Voice
-    {
-        bool active = false;
-        bool isOn   = false;   // ¿la subdivisión actual está sonando?
-        int  channel = 1;
-        int  note    = 60;
-        int  baseVelocity = 100;
-        int  step    = 0;      // índice de subdivisión (0 = la primera)
-        int  offIn   = -1;     // muestras hasta el note-off de la subdivisión (-1 = nada)
-        int  nextIn  = -1;     // muestras hasta la próxima subdivisión (-1 = terminó)
-    };
+    struct CapEvent { double beat; int channel, pitch, velocity; bool isOn; };
 
-    static constexpr int maxVoices = 64;
-    std::array<Voice, maxVoices> voices;
+    static constexpr int fifoSize = 2048;
+    juce::AbstractFifo fifo { fifoSize };
+    std::array<CapEvent, fifoSize> fifoData;
 
+    std::atomic<bool>   capturing { false };
+    std::atomic<double> bpm { 120.0 };
+    double sampleRateHz = 44100.0;
+
+    std::array<double, 16 * 128> openStart;   // inicio de notas abiertas (-1 = cerrada)
+    std::array<int,    16 * 128> openVel;
+
+    NoteList notes;
+    std::vector<NoteList> undoStack;
     juce::Random random;
-    double currentSampleRate = 44100.0;
-    bool   wasPlaying = false;
 
-    // Parámetros (punteros cacheados, lectura lock-free en el audio thread)
-    std::atomic<float>* pRate     = nullptr;
-    std::atomic<float>* pGate     = nullptr;
-    std::atomic<float>* pRepeats  = nullptr;
-    std::atomic<float>* pVelMode  = nullptr;
-    std::atomic<float>* pVelDepth = nullptr;
-    std::atomic<float>* pVelSteps = nullptr;
-    std::atomic<float>* pVelScale = nullptr;
-    std::atomic<float>* pHumanize = nullptr;
-    std::atomic<float>* pChannel  = nullptr;
-    std::atomic<float>* pNoteLow  = nullptr;
-    std::atomic<float>* pNoteHigh = nullptr;
-    std::atomic<float>* pVelLow   = nullptr;
-    std::atomic<float>* pVelHigh  = nullptr;
-
-    bool  matchesTarget (const juce::MidiMessage&) const;
-    int   velocityForStep (int baseVelocity, int step);
-    Voice* findVoice (int channel, int note);
-    Voice* freeVoice();
-    void  killAllVoices (juce::MidiBuffer& out, int samplePos);
-    void  startSubdivision (Voice&, juce::MidiBuffer& out, int samplePos, int gateSamples, int intervalSamples);
+    void pushUndo();
+    GenSettings currentSettings() const;
+    void timerCallback() override;           // pasa lo capturado al modelo
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SubdivFXProcessor)
 };
