@@ -2,7 +2,7 @@
 
 Efecto MIDI que **subdivide notas** (las repite sincronizadas al tempo mientras se mantienen) y les aplica **curvas de velocity**. Sólo procesa las notas que pasan el filtro **Destino**; todo lo demás (otras notas, CC, pitch bend) pasa sin cambios.
 
-Formatos: **AU** (MIDI FX en Logic, solo macOS), **VST3** y **Standalone**.
+Formatos: **AU** (MIDI FX en Logic) y **VST3**, para macOS (Intel y Apple Silicon).
 
 ---
 
@@ -21,7 +21,6 @@ Al terminar, los plugins se copian solos a:
 - `~/Library/Audio/Plug-Ins/Components/SubdivFX.component` (AU)
 - `~/Library/Audio/Plug-Ins/VST3/SubdivFX.vst3`
 
-En Windows es igual, pero con Visual Studio (`cmake -B build -G "Visual Studio 17 2022"`). Se genera solo el VST3.
 
 ## Usarlo en Logic
 
